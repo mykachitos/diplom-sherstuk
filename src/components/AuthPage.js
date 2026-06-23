@@ -54,10 +54,10 @@ export default function AuthPage({ setUser, setToken, setPage, showToast }) {
       <div className="auth-panel auth-cover">
         <div className="auth-cover-content">
           <span className="eyebrow">SweetHand</span>
-          <h1>Заказывайте десерты, сохраняйте избранное и управляйте заказами в одном кабинете.</h1>
+          <h1>Заказывайте десерты, сохраняйте избранное и управляйте покупками в одном кабинете.</h1>
           <p>
-            После входа мы подтянем ваши избранные позиции, историю заказов и
-            упростим оформление новых покупок.
+            После входа сайт запомнит ваш профиль, избранные позиции, историю заказов
+            и даст доступ к локальной админке, если вы авторизуетесь под демо-админом.
           </p>
         </div>
       </div>
@@ -66,6 +66,9 @@ export default function AuthPage({ setUser, setToken, setPage, showToast }) {
         <div className="auth-card">
           <div className="auth-logo">Sweet<span>Hand</span></div>
           <div className="auth-subtitle">Кондитерская ручной работы</div>
+          <div className="auth-demo-note">
+            Демо-админ: <strong>admin@sweethand.local</strong> / <strong>admin123</strong>
+          </div>
 
           <div className="auth-tabs">
             <button

@@ -10,6 +10,9 @@ import { getFromStorage, setToStorage } from "./utils/storage";
 import {
   addFavorite,
   createOrder,
+  deleteAdminProduct,
+  deleteAdminUser,
+  fetchAdminDashboard,
   fetchCategories,
   fetchCurrentUser,
   fetchFavorites,
@@ -17,11 +20,15 @@ import {
   fetchProducts,
   logoutUser,
   removeFavorite,
+  saveAdminProduct,
+  saveAdminUser,
+  updateAdminOrderStatus,
   updateProfile,
 } from "./utils/api";
 
 import AboutPage from "./components/AboutPage";
 import AccountPage from "./components/AccountPage";
+import AdminPage from "./components/AdminPage";
 import AuthPage from "./components/AuthPage";
 import CartPage from "./components/CartPage";
 import CatalogPage from "./components/CatalogPage";
@@ -45,6 +52,7 @@ export default function SweetHandApp() {
   const [products, setProducts] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [adminDashboard, setAdminDashboard] = useState(null);
   const [catalogCategory, setCatalogCategory] = useState("all");
   const [cookieConsentAccepted, setCookieConsentAccepted] = useState(() =>
     getFromStorage(COOKIE_CONSENT_KEY, false)
@@ -55,6 +63,7 @@ export default function SweetHandApp() {
   const [orderSuccess, setOrderSuccess] = useState(null);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [privateLoading, setPrivateLoading] = useState(false);
+  const [adminLoading, setAdminLoading] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
 
   useEffect(() => {
@@ -77,6 +86,7 @@ export default function SweetHandApp() {
       cart: "SweetHand | Корзина",
       account: "SweetHand | Кабинет",
       auth: "SweetHand | Вход",
+      admin: "SweetHand | Админка",
     };
 
     document.title = pageTitles[page] || "SweetHand";
@@ -103,48 +113,76 @@ export default function SweetHandApp() {
     }
   }, [showToast]);
 
-  const handleLogout = useCallback(async (withRequest = true) => {
-    if (withRequest && token) {
-      try {
-        await logoutUser(token);
-      } catch (_error) {
-        // Token can already be invalid; local logout is enough.
+  const handleLogout = useCallback(
+    async (withRequest = true) => {
+      if (withRequest && token) {
+        try {
+          await logoutUser(token);
+        } catch (_error) {
+          // Local logout is still enough.
+        }
       }
-    }
 
-    setToken(null);
-    setUser(null);
-    setFavorites([]);
-    setOrders([]);
-    setAccountTab("orders");
-    setPage("home");
-  }, [token]);
-
-  const loadPrivateData = useCallback(async currentToken => {
-    if (!currentToken) {
+      setToken(null);
       setUser(null);
       setFavorites([]);
       setOrders([]);
-      return;
-    }
+      setAdminDashboard(null);
+      setAccountTab("orders");
+      setPage("home");
+    },
+    [token]
+  );
 
-    setPrivateLoading(true);
-    try {
-      const [currentUser, favoriteProducts, userOrders] = await Promise.all([
-        fetchCurrentUser(currentToken),
-        fetchFavorites(currentToken),
-        fetchOrders(currentToken),
-      ]);
-      setUser(currentUser);
-      setFavorites(favoriteProducts);
-      setOrders(userOrders);
-    } catch (error) {
-      await handleLogout(false);
-      showToast(error.message || "Сессия истекла. Войдите снова.");
-    } finally {
-      setPrivateLoading(false);
-    }
-  }, [handleLogout, showToast]);
+  const loadPrivateData = useCallback(
+    async currentToken => {
+      if (!currentToken) {
+        setUser(null);
+        setFavorites([]);
+        setOrders([]);
+        return;
+      }
+
+      setPrivateLoading(true);
+      try {
+        const [currentUser, favoriteProducts, userOrders] = await Promise.all([
+          fetchCurrentUser(currentToken),
+          fetchFavorites(currentToken),
+          fetchOrders(currentToken),
+        ]);
+        setUser(currentUser);
+        setFavorites(favoriteProducts);
+        setOrders(userOrders);
+      } catch (error) {
+        await handleLogout(false);
+        showToast(error.message || "Сессия истекла. Войдите снова.");
+      } finally {
+        setPrivateLoading(false);
+      }
+    },
+    [handleLogout, showToast]
+  );
+
+  const loadAdminData = useCallback(
+    async currentToken => {
+      if (!currentToken) {
+        setAdminDashboard(null);
+        return;
+      }
+
+      setAdminLoading(true);
+      try {
+        const dashboard = await fetchAdminDashboard(currentToken);
+        setAdminDashboard(dashboard);
+      } catch (error) {
+        setAdminDashboard(null);
+        showToast(error.message || "Не удалось загрузить админку.");
+      } finally {
+        setAdminLoading(false);
+      }
+    },
+    [showToast]
+  );
 
   useEffect(() => {
     loadPublicData();
@@ -155,10 +193,22 @@ export default function SweetHandApp() {
       setUser(null);
       setFavorites([]);
       setOrders([]);
+      setAdminDashboard(null);
       return;
     }
     loadPrivateData(token);
   }, [loadPrivateData, token]);
+
+  useEffect(() => {
+    if (token && user?.isAdmin) {
+      loadAdminData(token);
+      return;
+    }
+    setAdminDashboard(null);
+    if (page === "admin") {
+      setPage("account");
+    }
+  }, [loadAdminData, page, token, user?.isAdmin]);
 
   const favoriteIds = useMemo(
     () => new Set(favorites.map(product => product.id)),
@@ -235,7 +285,10 @@ export default function SweetHandApp() {
         showToast(`${product.name} удален из избранного`, "success");
       } else {
         const favoriteProduct = await addFavorite(token, product.id);
-        setFavorites(prev => [favoriteProduct, ...prev.filter(item => item.id !== favoriteProduct.id)]);
+        setFavorites(prev => [
+          favoriteProduct,
+          ...prev.filter(item => item.id !== favoriteProduct.id),
+        ]);
         showToast(`${product.name} добавлен в избранное`, "success");
       }
     } catch (error) {
@@ -266,6 +319,9 @@ export default function SweetHandApp() {
       setOrders(prev => [order, ...prev]);
       setOrderSuccess(order);
       setCart([]);
+      if (user?.isAdmin) {
+        loadAdminData(token);
+      }
       showToast(`Заказ ${order.number} оформлен`, "success");
       return { ok: true, order };
     } catch (error) {
@@ -282,10 +338,75 @@ export default function SweetHandApp() {
     try {
       const updatedUser = await updateProfile(token, values);
       setUser(updatedUser);
+      if (updatedUser.isAdmin) {
+        loadAdminData(token);
+      }
       showToast("Профиль обновлен", "success");
     } catch (error) {
       showToast(error.message || "Не удалось обновить профиль.");
     }
+  };
+
+  const handleAdminRefresh = useCallback(async () => {
+    await loadPublicData();
+    if (token) {
+      await loadPrivateData(token);
+      if (user?.isAdmin) {
+        await loadAdminData(token);
+      }
+    }
+  }, [loadAdminData, loadPrivateData, loadPublicData, token, user?.isAdmin]);
+
+  const handleAdminSaveProduct = async values => {
+    if (!token) {
+      return null;
+    }
+
+    const saved = await saveAdminProduct(token, values);
+    await handleAdminRefresh();
+    showToast(`Товар ${saved.name} сохранен`, "success");
+    return saved;
+  };
+
+  const handleAdminDeleteProduct = async productId => {
+    if (!token) {
+      return;
+    }
+
+    await deleteAdminProduct(token, productId);
+    setCart(prev => prev.filter(item => item.id !== productId));
+    await handleAdminRefresh();
+    showToast("Товар удален", "success");
+  };
+
+  const handleAdminSaveUser = async values => {
+    if (!token) {
+      return;
+    }
+
+    await saveAdminUser(token, values);
+    await handleAdminRefresh();
+    showToast("Пользователь обновлен", "success");
+  };
+
+  const handleAdminDeleteUser = async userId => {
+    if (!token) {
+      return;
+    }
+
+    await deleteAdminUser(token, userId);
+    await handleAdminRefresh();
+    showToast("Пользователь удален", "success");
+  };
+
+  const handleAdminUpdateOrderStatus = async (userId, orderId, status) => {
+    if (!token) {
+      return;
+    }
+
+    await updateAdminOrderStatus(token, userId, orderId, status);
+    await handleAdminRefresh();
+    showToast("Статус заказа обновлен", "success");
   };
 
   const goToCatalog = categorySlug => {
@@ -330,6 +451,14 @@ export default function SweetHandApp() {
                   {label}
                 </button>
               ))}
+              {user?.isAdmin && (
+                <button
+                  className={`nav-btn ${page === "admin" ? "active" : ""}`}
+                  onClick={() => setPage("admin")}
+                >
+                  Админка
+                </button>
+              )}
             </div>
 
             <div className="nav-actions">
@@ -416,6 +545,20 @@ export default function SweetHandApp() {
             addedIds={addedIds}
             onSaveProfile={handleProfileSave}
             loading={privateLoading}
+          />
+        )}
+
+        {page === "admin" && (
+          <AdminPage
+            user={user}
+            dashboard={adminDashboard}
+            loading={adminLoading}
+            onRefresh={handleAdminRefresh}
+            onSaveProduct={handleAdminSaveProduct}
+            onDeleteProduct={handleAdminDeleteProduct}
+            onSaveUser={handleAdminSaveUser}
+            onDeleteUser={handleAdminDeleteUser}
+            onUpdateOrderStatus={handleAdminUpdateOrderStatus}
           />
         )}
 
